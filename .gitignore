@@ -177,3 +177,5 @@ cython_debug/
 .idea/
 *.session
 
+offline_auto_reply.session
+offline_auto_reply.session-journal

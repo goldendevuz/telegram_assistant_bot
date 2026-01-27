@@ -211,17 +211,20 @@ async def send_auto_offline_message(event: events.NewMessage.Event):
 
     try:
         if pm:
-            await event.respond(msg, parse_mode=pm)
+            await event.reply(msg, parse_mode=pm)
         else:
-            await event.respond(msg)
-        print(f"[{event.sender_id}] dan kelgan xabarga javob berildi.")
+            await event.reply(msg)
+
+        print(f"[{event.sender_id}] dan kelgan xabarga REPLY berildi.")
+
     except Exception as e:
-        # HTML parse error bo'lsa, plain fallback
+        # HTML parse error bo‘lsa → plain reply
         print(f"Auto-reply error (MODE={MODE}): {e}. Falling back to plain.")
         try:
-            await event.respond(html.escape(msg))  # plain (no parse_mode)
+            await event.reply(html.escape(msg))
         except Exception as e2:
             print(f"Fallback ham xato: {e2}")
+
 
 
 async def main():
