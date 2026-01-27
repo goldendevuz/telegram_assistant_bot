@@ -1,0 +1,19 @@
+services:
+  telegram_assistant_bot:
+    build: .
+    container_name: telegram_assistant_bot
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+      - telethon_session:/app
+    restart: unless-stopped
+    # Agar local vaqt kerak bo'lsa:
+    environment:
+      - TZ=Asia/Tashkent
+    # STDIN kerak bo'lsa (1-marta login code kiritish uchun):
+    stdin_open: true
+    tty: true
+
+volumes:
+  telethon_session:
