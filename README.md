@@ -1,5 +1,3 @@
-# Telegram_user_bot
-
 # Telegram Offline Auto Reply Bot (Telethon)
 
 This project is a **Telegram userbot** built with **Telethon** that automatically sends a reply
