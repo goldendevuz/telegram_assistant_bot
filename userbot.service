@@ -2,7 +2,7 @@
 Description=My userbot
 
 [Service]
-ExecStart=/asdas/sdasd/python.py
+ExecStart=/home/asus/PycharmProjects/mine/telegram_assistant_bot/userbot.py
 Restart=always
 RestartSec=5
 

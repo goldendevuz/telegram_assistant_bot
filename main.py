@@ -27,8 +27,8 @@ async def is_online():
         return True
     elif isinstance(user.status, UserStatusOffline):
         return False
-    else:
-        return None
+    # else:
+    #     return None
 
 
 @client.on(events.NewMessage(outgoing=True))
