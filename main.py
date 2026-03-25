@@ -1,12 +1,14 @@
 import os
 import time
 import html
-import telethon
+from datetime import datetime, time as dt_time
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.tl.types import UserStatusOnline, UserStatusOffline
+from telethon.sessions import StringSession
+import asyncio
 
-print(telethon.__version__)
+print("Telethon version:", __import__('telethon').__version__)
 
 load_dotenv()
 
@@ -14,101 +16,147 @@ api_id = int(os.getenv("TG_API_ID") or 0)
 api_hash = os.getenv("TG_API_HASH") or ""
 phone = os.getenv("TG_PHONE") or ""
 
-# Optional: Saved Messages ichida boshqarish uchun (o'zingizning user id)
 USER_ID = os.getenv("USER_ID")
 USER_ID = int(USER_ID) if USER_ID and USER_ID.isdigit() else None
 
-# Away message (bo'sh bo'lib qolsa xato chiqadi, shuning uchun fallback bor)
-DEFAULT_AWAY_MESSAGE = "Hozir offline-man. Keyinroq javob beraman. ✅"
-away_message = (os.getenv("TG_MESSAGE") or "").strip() or DEFAULT_AWAY_MESSAGE
+# Default away message fallback
+DEFAULT_AWAY_MESSAGE = (
+    "Hozir offline-man. Keyinroq javob beraman. ✅<br>"
+    "Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a><br>"
+    " Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"
+)
 
-# parse mode rejimi: plain | html
-MODE = (os.getenv("TG_MODE", "plain") or "plain").strip().lower()
+# parse mode: plain | html
+MODE = (os.getenv("TG_MODE", "html") or "html").strip().lower()
 if MODE not in ("plain", "html"):
     MODE = "plain"
 
-# Spam bo'lmasligi uchun: bir userga qayta javob berish oralig'i (sekund)
-REPLY_COOLDOWN_SECONDS = int(os.getenv("TG_REPLY_COOLDOWN", "600"))  # 10 min default
+# Per-user cooldown (spamdan himoya)
+REPLY_COOLDOWN_SECONDS = int(os.getenv("TG_REPLY_COOLDOWN", "600"))
 
-client = TelegramClient("offline_auto_reply", api_id, api_hash)
+client = TelegramClient(StringSession(), api_id, api_hash)
 
 IS_ACTIVE = True
-_last_replied_at: dict[int, float] = {}  # sender_id -> unix time
+_last_replied_at: dict[int, float] = {}
+_last_replied_lock = asyncio.Lock()  # Variant A
 
+# -------------------------------
+# Multi-schedule away messages
+# -------------------------------
+away_messages_schedule = [
+    # PDP Junior darslari
+    {
+        "weekdays": [0, 2, 4],
+        "start": "15:00",
+        "end": "16:30",
+        "message": """Hozir darsda bo‘lishim mumkin, shuning uchun tez javob bera olmasligim mumkin. 📚<br>
+Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a><br>
+ Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"""
+    },
+    # Fintechhub darslari
+    {
+        "weekdays": [1, 3, 5],
+        "start": "15:00",
+        "end": "17:00",
+        "message": """Hozir darsda bo‘lishim mumkin, shuning uchun tez javob bera olmasligim mumkin. 📚<br>
+Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a><br>
+ Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"""
+    },
+    # Kunduzgi bo‘sh vaqtlarda offline
+    {
+        "weekdays": list(range(7)),
+        "start": "08:00",
+        "end": "15:00",
+        "message": """Hozir offline-man. Keyinroq javob beraman. ✅<br>
+Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a><br>
+ Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"""
+    },
+    # Kechki bo‘sh vaqt
+    {
+        "weekdays": list(range(7)),
+        "start": "17:00",
+        "end": "22:00",
+        "message": """Hozir offline-man. Keyinroq javob beraman. ✅<br>
+Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a><br>
+ Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"""
+    },
+    # Kechki dam: 22:00–08:00
+    {
+        "weekdays": list(range(7)),
+        "start": "22:00",
+        "end": "08:00",
+        "message": """Hozir kechki dam, 08:00 gacha javob bera olmayman. 🌙<br>
+Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a><br>
+ Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"""
+    },
+]
 
+# -------------------------------
+# Helper functions
+# -------------------------------
 def _normalize_away_message(text: str | None) -> str:
     text = (text or "").strip()
     return text if text else DEFAULT_AWAY_MESSAGE
 
+def _current_away_message() -> str:
+    now = datetime.now()
+    current_time = now.time()
+    weekday = now.weekday()
+
+    for slot in away_messages_schedule:
+        if weekday not in slot.get("weekdays", list(range(7))):
+            continue
+
+        start_h, start_m = map(int, slot["start"].split(":"))
+        end_h, end_m = map(int, slot["end"].split(":"))
+        start = dt_time(start_h, start_m)
+        end = dt_time(end_h, end_m)
+
+        if start <= end:
+            if start <= current_time < end:
+                return slot["message"]
+        else:  # overnight interval
+            if current_time >= start or current_time < end:
+                return slot["message"]
+
+    return DEFAULT_AWAY_MESSAGE
 
 async def is_online() -> bool:
-    """
-    Telethon self-status. Ba'zi holatlarda status noaniq bo'lishi mumkin,
-    lekin UserStatusOnline/UserStatusOffline bo'yicha minimal check qilamiz.
-    """
     me = await client.get_me()
     user = await client.get_entity(me.id)
     status = getattr(user, "status", None)
-    print(status)
 
     if isinstance(status, UserStatusOnline):
         return True
     if isinstance(status, UserStatusOffline):
         return False
-
-    # Status noma'lum bo'lsa: ehtiyotkorlik bilan offline deb qabul qilamiz
     return False
 
-
 async def _is_saved_messages(event: events.NewMessage.Event) -> bool:
-    """
-    Saved Messages chat_id odatda o'zingizning user id'ingizga teng bo'ladi.
-    """
     me = await client.get_me()
     return event.is_private and event.chat_id == me.id
 
-
-def _can_reply_now(sender_id: int) -> bool:
+async def _can_reply_now(sender_id: int) -> bool:  # Variant A
     now = time.time()
-    last = _last_replied_at.get(sender_id, 0)
-    if now - last < REPLY_COOLDOWN_SECONDS:
-        return False
-    _last_replied_at[sender_id] = now
-    return True
-
+    async with _last_replied_lock:
+        last = _last_replied_at.get(sender_id, 0)
+        if now - last < REPLY_COOLDOWN_SECONDS:
+            return False
+        _last_replied_at[sender_id] = now
+        return True
 
 def build_reply_payload(text: str | None) -> tuple[str, str | None]:
-    """
-    Returns (message_text, parse_mode)
-    MODE=plain  -> parse_mode None (no entity parsing)
-    MODE=html   -> parse_mode "html" (Telegram HTML)
-    """
     msg = _normalize_away_message(text)
-
     if MODE == "plain":
         return msg, None
-
-    # MODE == "html"
-    # NOTE: Bu yerda msg'ni escape QILMAYMIZ — haqiqiy HTML ishlashi uchun.
-    # Agar siz taglar ishlamasin, faqat xavfsiz plain ko'rinishda ketsin desangiz:
-    # return html.escape(msg), "html"
     return msg, "html"
 
-
+# -------------------------------
+# Saved Messages admin panel
+# -------------------------------
 @client.on(events.NewMessage(outgoing=True))
 async def handle_outgoing_message(event: events.NewMessage.Event):
-    """
-    Saved Messages orqali boshqaruv:
-      dis        -> disable
-      en         -> enable
-      get        -> show away message
-      set\n<txt>  -> update away message
-
-      mode       -> show current MODE
-      set_plain  -> MODE=plain
-      set_html   -> MODE=html
-    """
-    global IS_ACTIVE, away_message, MODE
+    global IS_ACTIVE, MODE, DEFAULT_AWAY_MESSAGE
 
     if not await _is_saved_messages(event):
         return
@@ -126,28 +174,23 @@ async def handle_outgoing_message(event: events.NewMessage.Event):
         return
 
     if text == "get":
-        msg, pm = build_reply_payload(away_message)
-        if pm:
-            await event.respond(msg, parse_mode=pm)
-        else:
-            await event.respond(msg)
+        msg, pm = build_reply_payload(_current_away_message())
+        await event.respond(msg, parse_mode=pm)
         return
 
     if text.startswith("set\n"):
         new_msg = text.replace("set\n", "", 1)
-        away_message = _normalize_away_message(new_msg)
-
-        # Tasdiqni har doim html bilan chiroyli ko'rsatamiz (xavfsiz)
+        DEFAULT_AWAY_MESSAGE = _normalize_away_message(new_msg)
         await event.respond(
-            "✅ Away message updated:\n" + html.escape(away_message),
-            parse_mode="html",
+            "✅ Away message updated:\n" + html.escape(DEFAULT_AWAY_MESSAGE),
+            parse_mode="html"
         )
         return
 
     if text == "mode":
         await event.respond(
             f"Current mode: <b>{html.escape(MODE)}</b>\nModes: plain | html",
-            parse_mode="html",
+            parse_mode="html"
         )
         return
 
@@ -158,81 +201,61 @@ async def handle_outgoing_message(event: events.NewMessage.Event):
 
     if text == "set_html":
         MODE = "html"
-        await event.respond("✅ Mode set to HTML (Telegram HTML parse)", parse_mode="html")
+        await event.respond("✅ Mode set to HTML", parse_mode="html")
         return
 
-    await event.respond(
-        "Buyruqlar:\n"
-        "- en\n- dis\n- get\n- set\\n<matn>\n"
-        "- mode\n- set_plain\n- set_html",
-        parse_mode="html",
-    )
+    if text == "help":
+        await event.respond(
+            "Buyruqlar:\n- en\n- dis\n- get\n- set\\n<matn>\n- mode\n- set_plain\n- set_html",
+            parse_mode="html"
+        )
+        return
 
-
+# -------------------------------
+# Incoming messages handler
+# -------------------------------
 @client.on(events.NewMessage(incoming=True))
 async def handle_incoming_message(event: events.NewMessage.Event):
     if not IS_ACTIVE:
-        print("Handler is disabled")
         return
-
-    print("Handler is enabled")
     await send_auto_offline_message(event)
 
-
 async def send_auto_offline_message(event: events.NewMessage.Event):
-    # Faqat private chat
     if not event.is_private:
         return
-
-    # O'zingizga / Saved Messages'ga javob bermasin
     if await _is_saved_messages(event):
         return
-
-    # Service message yoki bo'sh kontent bo'lishi mumkin
     if not (event.raw_text or "").strip() and not event.message.media:
         return
 
-    # Botlarga javob bermaslik
     sender = await event.get_sender()
     if getattr(sender, "bot", False):
         return
 
     online = await is_online()
     if online:
-        print(f"[{event.sender_id}] dan xabar keldi, lekin siz ONLINE. Javob berilmadi.")
         return
 
-    # Spamni kamaytirish
-    if not _can_reply_now(event.sender_id):
-        print(f"[{event.sender_id}] uchun cooldown. Javob yuborilmadi.")
+    if not await _can_reply_now(event.sender_id):  # async lock bilan
         return
 
-    msg, pm = build_reply_payload(away_message)
-
+    msg, pm = build_reply_payload(_current_away_message())
     try:
-        if pm:
-            await event.reply(msg, parse_mode=pm)
-        else:
-            await event.reply(msg)
-
-        print(f"[{event.sender_id}] dan kelgan xabarga REPLY berildi.")
-
-    except Exception as e:
-        # HTML parse error bo‘lsa → plain reply
-        print(f"Auto-reply error (MODE={MODE}): {e}. Falling back to plain.")
+        await event.reply(msg, parse_mode=pm)
+    except Exception:
         try:
             await event.reply(html.escape(msg))
-        except Exception as e2:
-            print(f"Fallback ham xato: {e2}")
+        except Exception:
+            pass
 
-
-
+# -------------------------------
+# Main
+# -------------------------------
 async def main():
     await client.start(phone)
-    print("🤖 Avtomatik javob beruvchi ishga tushdi.")
-    print(f"MODE={MODE} | COOLDOWN={REPLY_COOLDOWN_SECONDS}s | IS_ACTIVE={IS_ACTIVE}")
+    print("🤖 Auto-reply bot ishlayapti")
+    print(f"MODE={MODE} | IS_ACTIVE={IS_ACTIVE}")
     await client.run_until_disconnected()
-
 
 if __name__ == "__main__":
     with client:
