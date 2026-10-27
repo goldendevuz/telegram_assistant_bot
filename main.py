@@ -5,6 +5,7 @@ import os
 import re
 import time
 from datetime import datetime, time as dt_time
+from pathlib import Path
 
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
@@ -67,6 +68,9 @@ client = TelegramClient(SESSION, API_ID, API_HASH)
 IS_ACTIVE = False
 ME_ID: int | None = None
 _last_reply_at: dict[int, float] = {}
+
+HEARTBEAT_FILE = "/tmp/bot_heartbeat"
+HEARTBEAT_INTERVAL_SECONDS = 60
 
 # -------------------------------
 # Helpers
@@ -180,8 +184,16 @@ async def handle_incoming(event: events.NewMessage.Event):
 # -------------------------------
 # Main
 # -------------------------------
+async def heartbeat():
+    # Docker healthcheck uchun: fayl vaqti yangilanib turadi
+    while True:
+        Path(HEARTBEAT_FILE).touch()
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
 async def main():
     global ME_ID
+
+    asyncio.create_task(heartbeat())
 
     phone = PHONE or (lambda: input("Telefon raqamingiz (+998...): "))
     await client.start(phone=phone)

@@ -11,6 +11,15 @@ services:
     volumes:
       - telethon_session:/app/data
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Birinchi login uchun terminal kerak (telefon raqam va kod kiritiladi)
     stdin_open: true
     tty: true
