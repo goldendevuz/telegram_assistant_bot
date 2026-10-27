@@ -7,3 +7,5 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 *:Zone.Identifier
+.env.tunnel
+*.db

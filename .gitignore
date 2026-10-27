@@ -222,3 +222,7 @@ __marimo__/
 # Telethon session (akkaunt kaliti, hech qachon commit qilinmasin)
 *.session
 *.session-journal
+
+# Telethon session / SQLite / admin panel
+*.db
+.env.tunnel

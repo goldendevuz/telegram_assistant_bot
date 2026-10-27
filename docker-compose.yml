@@ -6,10 +6,14 @@ services:
       - .env
     environment:
       - TZ=Asia/Tashkent
-      # Session fayl doimiy volume'da saqlanadi (restart/rebuild'dan keyin login qayta so'ralmaydi)
+      # Session va SQLite baza doimiy volume'da saqlanadi (restart/rebuild'dan keyin login qayta so'ralmaydi)
       - TG_SESSION=/app/data/telegram_session
+      - TG_DB_PATH=/app/data/bot.db
     volumes:
       - telethon_session:/app/data
+    # Admin panel faqat konteyner ichida (cloudflared orqali) ochiladi, host portiga ulanmaydi
+    expose:
+      - "8000"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -23,6 +27,20 @@ services:
     # Birinchi login uchun terminal kerak (telefon raqam va kod kiritiladi)
     stdin_open: true
     tty: true
+
+  # Serverda: docker compose --profile tunnel up -d --build
+  # Token .env.tunnel faylida (faqat serverda), lokal dev'da bu servis ishga tushmaydi
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: telegram_assistant_bot_tunnel
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    env_file:
+      - path: .env.tunnel
+        required: false
+    depends_on:
+      - telegram_assistant_bot
+    restart: unless-stopped
 
 volumes:
   telethon_session:

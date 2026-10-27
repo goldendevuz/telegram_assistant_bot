@@ -7,9 +7,13 @@ import time
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
+import uvicorn
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.tl.types import UserStatusOnline
+
+import storage
+import web
 
 load_dotenv()
 
@@ -21,8 +25,11 @@ API_ID = int(os.getenv("TG_API_ID") or 0)
 API_HASH = os.getenv("TG_API_HASH") or ""
 PHONE = os.getenv("TG_PHONE") or ""
 SESSION = os.getenv("TG_SESSION") or "telegram_session"  # login ma'lumoti shu faylda saqlanadi
-MODE = (os.getenv("TG_MODE") or "html").strip().lower()  # plain | html
+MODE = (os.getenv("TG_MODE") or "html").strip().lower()  # boshlang'ich qiymat, keyin DB dan olinadi
 REPLY_COOLDOWN_SECONDS = int(os.getenv("TG_REPLY_COOLDOWN") or 600)  # bir foydalanuvchiga javob oralig'i
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or ""
+ADMIN_HOST = os.getenv("ADMIN_HOST") or "0.0.0.0"
+ADMIN_PORT = int(os.getenv("ADMIN_PORT") or 8000)
 
 if not API_ID or not API_HASH:
     raise SystemExit("TG_API_ID va TG_API_HASH .env faylida ko'rsatilishi shart")
@@ -43,7 +50,7 @@ OFFLINE_TEXT = "Hozir offline-man. Keyinroq javob beraman. ✅"
 CLASS_MESSAGE = f"Hozir darsda bo‘lishim mumkin, shuning uchun tez javob bera olmasligim mumkin. 📚\n{CONTACT}"
 NIGHT_MESSAGE = f"Hozir kechki dam, 08:00 gacha javob bera olmayman. 🌙\n{CONTACT}"
 
-# /set buyrug'i bilan o'zgaradi. Jadvaldagi "message": None bo'lgan oraliqlar shuni ishlatadi.
+# Boshlang'ich standart xabar. Keyin admin panel yoki "set" buyrug'i DB'da o'zgartiradi.
 DEFAULT_AWAY_MESSAGE = f"{OFFLINE_TEXT}\n{CONTACT}"
 
 ALL_DAYS = range(7)  # 0 = Dushanba ... 6 = Yakshanba
@@ -65,7 +72,6 @@ AWAY_SCHEDULE = [
 # -------------------------------
 client = TelegramClient(SESSION, API_ID, API_HASH)
 
-IS_ACTIVE = False
 ME_ID: int | None = None
 _last_reply_at: dict[int, float] = {}
 
@@ -75,6 +81,15 @@ HEARTBEAT_INTERVAL_SECONDS = 60
 # -------------------------------
 # Helpers
 # -------------------------------
+def is_active() -> bool:
+    return storage.get_settings().get("is_active") == "1"
+
+def current_mode() -> str:
+    return storage.get_settings().get("mode", MODE)
+
+def default_message() -> str:
+    return storage.get_settings().get("default_message", DEFAULT_AWAY_MESSAGE)
+
 def _in_window(now: dt_time, start: dt_time, end: dt_time) -> bool:
     if start <= end:
         return start <= now < end
@@ -84,11 +99,23 @@ def current_away_message() -> str:
     now = datetime.now()
     for slot in AWAY_SCHEDULE:
         if now.weekday() in slot["weekdays"] and _in_window(now.time(), slot["start"], slot["end"]):
-            return slot["message"] or DEFAULT_AWAY_MESSAGE
-    return DEFAULT_AWAY_MESSAGE
+            return slot["message"] or default_message()
+    return default_message()
+
+def rule_message_now(user_id: int) -> str | None:
+    """Foydalanuvchi uchun faol maxsus xabar. Yo'q bo'lsa None (standart jadval ishlaydi)."""
+    rule = storage.get_rule(user_id)
+    if not rule or not rule["enabled"]:
+        return None
+    if rule["start_time"] and rule["end_time"]:
+        start = dt_time.fromisoformat(rule["start_time"])
+        end = dt_time.fromisoformat(rule["end_time"])
+        if not _in_window(datetime.now().time(), start, end):
+            return None
+    return rule["message"]
 
 def build_reply_payload(text: str) -> tuple[str, str | None]:
-    if MODE == "plain":
+    if current_mode() == "plain":
         return text, None
     return text, "html"
 
@@ -114,15 +141,13 @@ def _is_saved_messages(event: events.NewMessage.Event) -> bool:
 # -------------------------------
 @client.on(events.NewMessage(outgoing=True, func=_is_saved_messages))
 async def handle_command(event: events.NewMessage.Event):
-    global IS_ACTIVE, MODE, DEFAULT_AWAY_MESSAGE
-
     text = (event.raw_text or "").strip()
 
     if text == "en":
-        IS_ACTIVE = True
+        storage.set_setting("is_active", "1")
         await event.respond("✅ Auto-reply: ENABLED", parse_mode=None)
     elif text == "dis":
-        IS_ACTIVE = False
+        storage.set_setting("is_active", "0")
         await event.respond("✅ Auto-reply: DISABLED", parse_mode=None)
     elif text == "get":
         msg, pm = build_reply_payload(current_away_message())
@@ -132,21 +157,21 @@ async def handle_command(event: events.NewMessage.Event):
         if not new_msg:
             await event.respond("❌ Matn bo'sh. Format: set + yangi matn keyingi qatorda", parse_mode=None)
             return
-        DEFAULT_AWAY_MESSAGE = new_msg
+        storage.set_setting("default_message", new_msg)
         await event.respond(
-            "✅ Away message updated:\n" + html.escape(DEFAULT_AWAY_MESSAGE),
+            "✅ Away message updated:\n" + html.escape(new_msg),
             parse_mode="html",
         )
     elif text == "mode":
         await event.respond(
-            f"Current mode: <b>{MODE}</b>\nModes: plain | html",
+            f"Current mode: <b>{current_mode()}</b>\nModes: plain | html",
             parse_mode="html",
         )
     elif text == "set_plain":
-        MODE = "plain"
+        storage.set_setting("mode", "plain")
         await event.respond("✅ Mode set to PLAIN", parse_mode=None)
     elif text == "set_html":
-        MODE = "html"
+        storage.set_setting("mode", "html")
         await event.respond("✅ Mode set to HTML", parse_mode="html")
     elif text == "help":
         await event.respond(
@@ -159,7 +184,7 @@ async def handle_command(event: events.NewMessage.Event):
 # -------------------------------
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def handle_incoming(event: events.NewMessage.Event):
-    if not IS_ACTIVE:
+    if not is_active():
         return
     if not (event.raw_text or "").strip() and not event.message.media:
         return
@@ -174,7 +199,8 @@ async def handle_incoming(event: events.NewMessage.Event):
     if not _can_reply_now(event.sender_id):
         return
 
-    msg, pm = build_reply_payload(current_away_message())
+    text = rule_message_now(event.sender_id) or current_away_message()
+    msg, pm = build_reply_payload(text)
     try:
         await event.reply(msg, parse_mode=pm)
     except Exception:
@@ -182,7 +208,7 @@ async def handle_incoming(event: events.NewMessage.Event):
         await event.reply(_strip_html(msg), parse_mode=None)
 
 # -------------------------------
-# Main
+# Background tasks
 # -------------------------------
 async def heartbeat():
     # Docker healthcheck uchun: fayl vaqti yangilanib turadi
@@ -190,16 +216,30 @@ async def heartbeat():
         Path(HEARTBEAT_FILE).touch()
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
+async def serve_admin():
+    config = uvicorn.Config(web.app, host=ADMIN_HOST, port=ADMIN_PORT, log_level="warning", access_log=False)
+    log.info("Admin panel: http://%s:%s", ADMIN_HOST, ADMIN_PORT)
+    await uvicorn.Server(config).serve()
+
+# -------------------------------
+# Main
+# -------------------------------
 async def main():
     global ME_ID
 
+    storage.init({"is_active": "0", "mode": MODE, "default_message": DEFAULT_AWAY_MESSAGE})
     asyncio.create_task(heartbeat())
+
+    if ADMIN_PASSWORD:
+        asyncio.create_task(serve_admin())
+    else:
+        log.warning("ADMIN_PASSWORD bo'sh: admin panel ishga tushmaydi")
 
     phone = PHONE or (lambda: input("Telefon raqamingiz (+998...): "))
     await client.start(phone=phone)
 
     ME_ID = (await client.get_me()).id
-    log.info("🤖 Auto-reply bot ishlayapti | MODE=%s | IS_ACTIVE=%s", MODE, IS_ACTIVE)
+    log.info("🤖 Auto-reply bot ishlayapti | MODE=%s | IS_ACTIVE=%s", current_mode(), is_active())
     await client.run_until_disconnected()
 
 if __name__ == "__main__":

@@ -87,3 +87,29 @@ Created by **Abdulmajid Yunus** ([@goldendevuz](https://github.com/goldendevuz))
 
 Licensed under the MIT License with Attribution. See [LICENSE](LICENSE).
 Forks and derivative works must keep the author attribution above in their README.
+
+---
+
+## 🖥 Admin panel
+
+A responsive web panel (`static/index.html`) for the auto-reply settings and per-user rules:
+
+- Turn auto-reply on/off, choose HTML/plain mode, edit the default message
+- Per-user messages (by Telegram user ID), optionally limited to a time window (e.g. `09:00`–`18:00`)
+- Protected with HTTP Basic auth (`ADMIN_USER` / `ADMIN_PASSWORD` in `.env`); disabled if the password is empty
+
+Settings and rules are stored in SQLite (`/app/data/bot.db` in Docker), so they survive restarts.
+
+### Public access via Cloudflare Tunnel (server)
+
+1. In the Cloudflare dashboard, add a public hostname to your tunnel, e.g. `tg.example.uz`, pointing to the service `http://telegram_assistant_bot:8000`.
+2. Put the tunnel token in `.env.tunnel` on the server (never commit it):
+   ```env
+   TUNNEL_TOKEN=your-tunnel-token
+   ```
+3. Start everything, including the tunnel:
+   ```bash
+   docker compose --profile tunnel up -d --build
+   ```
+
+Local development does not start `cloudflared` (no profile), so it cannot take over the production tunnel.

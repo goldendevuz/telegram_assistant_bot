@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto-reply boshqaruvi</title>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #ffffff; --text: #1d2433; --muted: #6b7385;
+    --accent: #2563eb; --danger: #dc2626; --ok: #16a34a; --border: #e3e7ef;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1420; --card: #171d2b; --text: #e7ebf3; --muted: #9aa3b5;
+      --accent: #60a5fa; --danger: #f87171; --ok: #4ade80; --border: #263044;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1420; --card: #171d2b; --text: #e7ebf3; --muted: #9aa3b5;
+    --accent: #60a5fa; --danger: #f87171; --ok: #4ade80; --border: #263044;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    max-width: 900px; margin: 0 auto; padding: 16px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  main {
+    max-width: 900px; margin: 0 auto; padding: 0 16px 48px;
+    display: grid; gap: 16px; grid-template-columns: 1fr;
+  }
+  @media (min-width: 900px) {
+    main { grid-template-columns: 1fr 1fr; }
+    .wide { grid-column: 1 / -1; }
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; min-width: 0;
+  }
+  label { display: block; font-size: 14px; color: var(--muted); margin: 12px 0 6px; }
+  input, select, textarea {
+    width: 100%; font: inherit; color: inherit; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-height: 44px;
+  }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 520px) { .row { grid-template-columns: 1fr 1fr; } }
+  button {
+    min-height: 44px; padding: 0 16px; border-radius: 10px; border: 0;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  button.danger { background: var(--danger); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .badge { padding: 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+  .on { background: rgba(22, 163, 74, .15); color: var(--ok); }
+  .off { background: rgba(220, 38, 38, .12); color: var(--danger); }
+  .rule { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 10px; }
+  .rule-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+  .meta { color: var(--muted); font-size: 14px; }
+  .preview { white-space: pre-wrap; margin: 8px 0; overflow-wrap: anywhere; }
+  .checkbox { display: flex; align-items: center; gap: 10px; margin-top: 12px; min-height: 44px; }
+  .checkbox input { width: 22px; height: 22px; min-height: 22px; }
+  .empty { color: var(--muted); margin: 8px 0; }
+  #toast {
+    position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 480px; margin: 0 auto;
+    background: var(--text); color: var(--bg); padding: 12px 16px; border-radius: 12px; display: none;
+  }
+  #toast.show { display: block; }
+  #toast.error { background: var(--danger); color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Auto-reply boshqaruvi</h1>
+  <span id="status" class="badge off">Yuklanmoqda…</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Umumiy sozlamalar</h2>
+    <div class="actions" style="margin-top:0">
+      <button id="toggle" class="ghost" type="button">…</button>
+    </div>
+    <label for="mode">Xabar formati</label>
+    <select id="mode">
+      <option value="html">HTML (havolalar bilan)</option>
+      <option value="plain">Oddiy matn</option>
+    </select>
+    <label for="default">Standart xabar</label>
+    <textarea id="default" maxlength="2000"></textarea>
+    <div class="actions">
+      <button id="saveSettings" type="button">Saqlash</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Foydalanuvchi qoidasi</h2>
+    <form id="ruleForm">
+      <div class="row">
+        <div>
+          <label for="userId">Telegram ID</label>
+          <input id="userId" type="number" inputmode="numeric" min="1" required>
+        </div>
+        <div>
+          <label for="ruleLabel">Izoh</label>
+          <input id="ruleLabel" maxlength="100" placeholder="Masalan: Ali (mijoz)">
+        </div>
+      </div>
+      <label for="ruleMessage">Maxsus xabar</label>
+      <textarea id="ruleMessage" maxlength="2000" required></textarea>
+      <div class="row">
+        <div>
+          <label for="start">Boshlanish (ixtiyoriy)</label>
+          <input id="start" type="time">
+        </div>
+        <div>
+          <label for="end">Tugash (ixtiyoriy)</label>
+          <input id="end" type="time">
+        </div>
+      </div>
+      <label class="checkbox"><input id="enabled" type="checkbox" checked> Faol</label>
+      <div class="actions">
+        <button type="submit">Saqlash</button>
+        <button type="button" id="resetRule" class="ghost">Tozalash</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card wide">
+    <h2>Qoidalar</h2>
+    <div id="rules"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let state = null;
+
+  function toast(text, isError = false) {
+    const t = $('toast');
+    t.textContent = text;
+    t.className = 'show' + (isError ? ' error' : '');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => (t.className = ''), 3000);
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      } catch (_) { /* javob JSON emas */ }
+      throw new Error(`${res.status}: ${detail}`);
+    }
+    return res.json();
+  }
+
+  function render() {
+    const s = state.settings;
+    const badge = $('status');
+    badge.textContent = s.is_active ? 'Yoqilgan' : "O'chirilgan";
+    badge.className = 'badge ' + (s.is_active ? 'on' : 'off');
+    $('toggle').textContent = s.is_active ? "O'chirish" : 'Yoqish';
+    $('mode').value = s.mode;
+    $('default').value = s.default_message;
+    renderRules();
+  }
+
+  function button(text, cls, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    if (cls) b.className = cls;
+    b.onclick = onClick;
+    return b;
+  }
+
+  function renderRules() {
+    const box = $('rules');
+    box.replaceChildren();
+    if (!state.rules.length) {
+      const p = document.createElement('p');
+      p.className = 'empty';
+      p.textContent = "Hozircha qoidalar yo'q";
+      box.append(p);
+      return;
+    }
+    for (const r of state.rules) {
+      const card = document.createElement('div');
+      card.className = 'rule';
+
+      const head = document.createElement('div');
+      head.className = 'rule-head';
+      const title = document.createElement('strong');
+      title.textContent = `${r.label || 'Nomsiz'} · ID ${r.user_id}`;
+      const status = document.createElement('span');
+      status.className = 'meta';
+      status.textContent = r.enabled ? 'Faol' : 'Nofaol';
+      head.append(title, status);
+
+      const when = document.createElement('div');
+      when.className = 'meta';
+      when.textContent = r.start_time && r.end_time
+        ? `Vaqt: ${r.start_time}–${r.end_time}`
+        : "Vaqt: kun bo'yi";
+
+      const preview = document.createElement('div');
+      preview.className = 'preview';
+      preview.textContent = r.message;
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      actions.append(
+        button('Tahrirlash', 'ghost', () => fillRule(r)),
+        button("O'chirish", 'danger', () => deleteRule(r.user_id)),
+      );
+
+      card.append(head, when, preview, actions);
+      box.append(card);
+    }
+  }
+
+  function fillRule(r) {
+    $('userId').value = r.user_id;
+    $('ruleLabel').value = r.label;
+    $('ruleMessage').value = r.message;
+    $('start').value = r.start_time || '';
+    $('end').value = r.end_time || '';
+    $('enabled').checked = r.enabled;
+    $('ruleForm').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function resetRule() {
+    $('ruleForm').reset();
+    $('enabled').checked = true;
+  }
+
+  async function load() {
+    state = await api('/api/state');
+    render();
+  }
+
+  async function saveSettings(patch = {}) {
+    const body = {
+      is_active: state.settings.is_active,
+      mode: $('mode').value,
+      default_message: $('default').value,
+      ...patch,
+    };
+    try {
+      state = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+      render();
+      toast('Saqlandi');
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  async function deleteRule(id) {
+    if (!confirm(`ID ${id} qoidasini o'chirasizmi?`)) return;
+    try {
+      state = await api(`/api/rules/${id}`, { method: 'DELETE' });
+      render();
+      toast("O'chirildi");
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  $('toggle').onclick = () => saveSettings({ is_active: !state.settings.is_active });
+  $('saveSettings').onclick = () => saveSettings();
+  $('resetRule').onclick = resetRule;
+
+  $('ruleForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {
+      user_id: Number($('userId').value),
+      label: $('ruleLabel').value.trim(),
+      message: $('ruleMessage').value.trim(),
+      start_time: $('start').value || null,
+      end_time: $('end').value || null,
+      enabled: $('enabled').checked,
+    };
+    try {
+      state = await api('/api/rules', { method: 'POST', body: JSON.stringify(body) });
+      render();
+      resetRule();
+      toast('Qoida saqlandi');
+    } catch (err) {
+      toast(err.message, true);
+    }
+  };
+
+  load().catch((err) => toast(err.message, true));
+</script>
+</body>
+</html>
