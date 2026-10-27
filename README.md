@@ -78,3 +78,12 @@ docker compose logs -f telegram_assistant_bot
 git pull
 docker compose up -d --build
 ```
+
+---
+
+## 👤 Author & License
+
+Created by **Abdulmajid Yunus** ([@goldendevuz](https://github.com/goldendevuz)).
+
+Licensed under the MIT License with Attribution. See [LICENSE](LICENSE).
+Forks and derivative works must keep the author attribution above in their README.
