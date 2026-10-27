@@ -31,9 +31,12 @@ if MODE not in ("plain", "html"):
 # -------------------------------
 # Away messages
 # -------------------------------
-CONTACT = (
-    "Shoshilinsa: <a href='tel:+998903611904'>+998903611904</a>\n"
-    "Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>"
+CONTACT_PHONE = os.getenv("TG_CONTACT_PHONE") or ""  # xabarda ko'rsatiladigan telefon (ixtiyoriy)
+CONTACT = "\n".join(
+    line for line in (
+        f"Shoshilinsa: <a href='tel:{CONTACT_PHONE}'>{CONTACT_PHONE}</a>" if CONTACT_PHONE else "",
+        "Reklama: <a href='https://t.me/SecondSaverBot'>@SecondSaverBot</a>",
+    ) if line
 )
 OFFLINE_TEXT = "Hozir offline-man. Keyinroq javob beraman. ✅"
 CLASS_MESSAGE = f"Hozir darsda bo‘lishim mumkin, shuning uchun tez javob bera olmasligim mumkin. 📚\n{CONTACT}"

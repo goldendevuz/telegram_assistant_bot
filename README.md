@@ -50,6 +50,7 @@ Create a `.env` file next to `docker-compose.yml`:
 TG_API_ID=your_api_id
 TG_API_HASH=your_api_hash
 TG_PHONE=
+TG_CONTACT_PHONE=
 TG_MODE=html
 TG_REPLY_COOLDOWN=600
 ```
