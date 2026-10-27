@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Telethon session (akkaunt kaliti, hech qachon commit qilinmasin)
+*.session
+*.session-journal

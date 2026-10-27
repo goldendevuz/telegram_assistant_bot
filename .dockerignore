@@ -1,0 +1,9 @@
+.git
+.venv
+.env
+*.session
+*.session-journal
+__pycache__/
+*.py[cod]
+.ruff_cache/
+*:Zone.Identifier

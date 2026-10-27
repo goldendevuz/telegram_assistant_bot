@@ -1,0 +1,26 @@
+services:
+  telegram_assistant_bot:
+    build: .
+    container_name: telegram_assistant_bot
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Tashkent
+      # Session fayl doimiy volume'da saqlanadi (restart/rebuild'dan keyin login qayta so'ralmaydi)
+      - TG_SESSION=/app/data/telegram_session
+    volumes:
+      - telethon_session:/app/data
+    restart: unless-stopped
+    # Birinchi login uchun terminal kerak (telefon raqam va kod kiritiladi)
+    stdin_open: true
+    tty: true
+
+volumes:
+  telethon_session:
+
+# Docker'ning default manzil pool'i to'lib qolgan bo'lsa ham tarmoq yaratilishi uchun aniq subnet
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.77.77.0/24
